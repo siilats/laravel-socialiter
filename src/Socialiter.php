@@ -40,7 +40,7 @@ class Socialiter
     }
     public function apilogin($socialiteUser, $apitoken ) : Model
     {
-        $this -> $apitoken = $apitoken;
+        $this -> apitoken = $apitoken;
         $user = $this->getUser($socialiteUser, $this->driver);
         $user->load("socialCredentials");
 
