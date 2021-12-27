@@ -13,53 +13,66 @@ class Socialiter
 {
     public static $runsMigrations = true;
 
+    protected $isStateless = false;
+    protected $config;
     protected $driver;
-    protected $apitoken;
+    protected $apiToken;
 
-    public static function ignoreMigrations()
+    public static function ignoreMigrations(): void
     {
         static::$runsMigrations = false;
     }
 
-    public function driver(string $driver) : self
+    public function driver(string $driver): self
     {
         $this->driver = $driver;
 
         return $this;
     }
 
-    public function login() : Model
+    public function login(): Model
     {
-        $socialiteUser = Socialite::driver($this->driver)
-            ->user();
-        $user = $this->getUser($socialiteUser, $this->driver);
-        $user->load("socialCredentials");
+        $socialite = Socialite::driver($this->driver);
 
+        if ($this->config) {
+            $socialite = $socialite
+                ->setConfig($this->config);
+        }
+
+        if ($this->isStateless) {
+            $socialite = $socialite->stateless();
+        }
+
+        $socialiteUser = $socialite->user();
+
+        return $this->performLogin($socialiteUser);
+    }
+
+    public function apiLogin(AbstractUser $socialiteUser, string $apiToken): Model
+    {
+        $this->apiToken = $apiToken;
+
+        return $this->performLogin($socialiteUser);
+    }
+
+    protected function performLogin(AbstractUser $socialiteUser): Model
+    {
+        $user = $this
+            ->getUser($socialiteUser, $this->driver);
+        $user->load("socialCredentials");
         auth()->login($user);
 
         return $user;
     }
 
-    public function apilogin($socialiteUser, $apitoken) : Model
-    {
-        $this -> apitoken = $apitoken;
-        $socialiteUser -> apitoken = $apitoken;
-        $user = $this->getUser($socialiteUser, $this->driver);
-        $user->load("socialCredentials");
-
-        auth()->login($user);
-
-        return $user;
-    }
-
-    protected function getUser(AbstractUser $socialiteUser) : Model
+    protected function getUser(AbstractUser $socialiteUser): Model
     {
         $user = $this->createCredentials($socialiteUser);
 
         return $user->user;
     }
 
-    protected function createUser(AbstractUser $socialiteUser) : Model
+    protected function createUser(AbstractUser $socialiteUser): Model
     {
         $userClass = config("auth.providers.users.model");
 
@@ -92,7 +105,8 @@ class Socialiter
             $socialiteUser->email = $socialiteUser -> apitoken;
         }
 
-        $socialiteCredentials = (new SocialCredentials)
+        $credentialsModel = SocialCredentials::model();
+        $socialiteCredentials = (new $credentialsModel)
             ->with("user")
             ->firstOrNew([
                 "provider_id" => $socialiteUser->getId(),
@@ -125,5 +139,19 @@ class Socialiter
         $socialiteCredentials->save();
 
         return $socialiteCredentials;
+    }
+
+    public function setConfig($config): self
+    {
+        $this->config = $config;
+
+        return $this;
+    }
+
+    public function stateless(): self
+    {
+        $this->isStateless = true;
+
+        return $this;
     }
 }
