@@ -2,6 +2,7 @@
 
 namespace GeneaLabs\LaravelSocialiter;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -59,7 +60,6 @@ class Socialiter
         $user = $this
             ->getUser($socialiteUser, $this->driver);
         $user->load("socialCredentials");
-
         auth()->login($user);
 
         return $user;
@@ -67,26 +67,44 @@ class Socialiter
 
     protected function getUser(AbstractUser $socialiteUser): Model
     {
-        return $this
-            ->createCredentials($socialiteUser)
-            ->user;
+        $user = $this->createCredentials($socialiteUser);
+
+        return $user->user;
     }
 
     protected function createUser(AbstractUser $socialiteUser): Model
     {
         $userClass = config("auth.providers.users.model");
 
-        return (new $userClass)
-            ->updateOrCreate([
-                "email" => $socialiteUser->getEmail(),
-            ], [
-                "name" => $socialiteUser->getName(),
-                "password" => Str::random(64),
-            ]);
+        $user = User::where([
+            ['email', '=', $socialiteUser->getEmail()],
+            ['api_token', '=', $this->apitoken]
+        ])->first();
+
+        if (!$user) {
+            $user = (new $userClass)
+                ->firstOrCreate([
+                    "email" => $socialiteUser->getEmail(),
+                    "api_token" => $this->apitoken,
+                    "name" => $socialiteUser->getName(),
+                    "password" => Str::random(64),
+                ]);
+        } else {
+            //$user->api_token = $this->apitoken;
+            $user->name = $socialiteUser->getName();
+        }
+
+        $user->save();
+
+        return $user;
     }
 
-    protected function createCredentials(AbstractUser $socialiteUser): SocialCredentials
+    public function createCredentials(AbstractUser $socialiteUser) : SocialCredentials
     {
+        if(!isset($socialiteUser->email)){
+            $socialiteUser->email = $socialiteUser -> apitoken;
+        }
+
         $credentialsModel = SocialCredentials::model();
         $socialiteCredentials = (new $credentialsModel)
             ->with("user")
@@ -106,8 +124,15 @@ class Socialiter
                 "refresh_token" => $socialiteUser->refreshToken,
             ]);
 
-        if (! $socialiteCredentials->exists) {
-            $user = $this->createUser($socialiteUser);
+        if (!$socialiteCredentials->exists) {
+            $user = User::where(function($q) use ($socialiteUser) {
+                $q->where('email','=', $socialiteUser->email)
+                    ->orWhere('api_token', '=', $socialiteUser->apitoken);
+            })->first();
+            if (!$user) {
+                $user = $this->createUser($socialiteUser);
+            }
+
             $socialiteCredentials->user()->associate($user);
         }
 
